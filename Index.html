@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Cyber-Catcher</title>
+    <style>
+        :root {
+            --neon-blue: #00f2ff;
+            --neon-pink: #ff00ea;
+            --bg-dark: #0a0a12;
+            --glass: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            touch-action: none;
+            user-select: none;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: white;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            height: 80vh;
+            background: radial-gradient(circle at center, #1a1a2e 0%, #0a0a12 100%);
+            border: 2px solid var(--glass);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 0 30px rgba(0, 242, 255, 0.1);
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px var(--neon-blue);
+        }
+
+        #overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .btn {
+            background: transparent;
+            color: var(--neon-blue);
+            border: 2px solid var(--neon-blue);
+            padding: 12px 30px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            margin-top: 20px;
+            border-radius: 4px;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        .btn:hover {
+            background: var(--neon-blue);
+            color: black;
+            box-shadow: 0 0 20px var(--neon-blue);
+        }
+
+        h1 {
+            color: var(--neon-pink);
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 0 0 15px var(--neon-pink);
+        }
+
+        p {
+            color: #ccc;
+            margin-bottom: 10px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div class="ui-layer">
+            <div>Score: <span id="score-val">0</span></div>
+            <div>Lives: <span id="lives-val">3</span></div>
+        </div>
+
+        <div id="overlay">
+            <h1 id="title">CYBER CATCHER</h1>
+            <p id="message">Catch the <span style="color:var(--neon-blue)">Blue Cores</span>.<br>Avoid the <span style="color:var(--neon-pink)">Glitches</span>.</p>
+            <button class="btn" id="start-btn">Start System</button>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score-val');
+        const livesEl = document.getElementById('lives-val');
+        const overlay = document.getElementById('overlay');
+        const startBtn = document.getElementById('start-btn');
+        const titleEl = document.getElementById('title');
+        const messageEl = document.getElementById('message');
+
+        let score = 0;
+        let lives = 3;
+        let gameActive = false;
+        let animationFrame;
+
+        // Game Configuration
+        const config = {
+            paddleHeight: 12,
+            paddleWidth: 80,
+            itemSize: 20,
+            initialSpeed: 3,
+            speedInc: 0.1,
+            spawnRate: 1000 // ms
+        };
+
+        let paddle = { x: 0, y: 0 };
+        let items = [];
+        let lastSpawn = 0;
+
+        function init() {
+            resize();
+            paddle.y = canvas.height - 40;
+            paddle.x = (canvas.width - config.paddleWidth) / 2;
+        }
+
+        function resize() {
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+
+        window.addEventListener('resize', init);
+
+        // Input Handling
+        function movePaddle(e) {
+            if (!gameActive) return;
+            let clientX;
+            if (e.touches) {
+                clientX = e.touches[0].clientX;
+            } else {
+                clientX = e.clientX;
+            }
+            const rect = canvas.getBoundingClientRect();
+            const x = clientX - rect.left;
+            paddle.x = Math.max(0, Math.min(canvas.width - config.paddleWidth, x - config.paddleWidth / 2));
+        }
+
+        canvas.addEventListener('mousemove', movePaddle);
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            movePaddle(e);
+        }, { passive: false });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') paddle.x -= 30;
+            if (e.key === 'ArrowRight') paddle.x += 30;
+            paddle.x = Math.max(0, Math.min(canvas.width - config.paddleWidth, paddle.x));
+        });
+
+        function spawnItem() {
+            const isGlitch = Math.random() < 0.25;
+            items.push({
+                x: Math.random() * (canvas.width - config.itemSize),
+                y: -config.itemSize,
+                type: isGlitch ? 'glitch' : 'core',
+                speed: config.initialSpeed + (score * config.speedInc),
+                rotation: 0
+            });
+        }
+
+        function drawPaddle() {
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#fff';
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.roundRect(paddle.x, paddle.y, config.paddleWidth, config.paddleHeight, 6);
+            ctx.fill();
+            
+            // Neon accent
+            ctx.shadowColor = 'var(--neon-blue)';
+            ctx.strokeStyle = '#00f2ff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+        }
+
+        function drawItems() {
+            items.forEach(item => {
+                ctx.save();
+                ctx.translate(item.x + config.itemSize/2, item.y + config.itemSize/2);
+                ctx.rotate(item.rotation);
+                
+                if (item.type === 'core') {
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = '#00f2ff';
+                    ctx.fillStyle = '#00f2ff';
+                    ctx.fillRect(-config.itemSize/2, -config.itemSize/2, config.itemSize, config.itemSize);
+                } else {
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = '#ff00ea';
+                    ctx.fillStyle = '#ff00ea';
+                    // Draw a glitch triangle
+                    ctx.beginPath();
+                    ctx.moveTo(0, -config.itemSize/2);
+                    ctx.lineTo(config.itemSize/2, config.itemSize/2);
+                    ctx.lineTo(-config.itemSize/2, config.itemSize/2);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                ctx.restore();
+            });
+        }
+
+        function update() {
+            if (!gameActive) return;
+
+            const now = Date.now();
+            if (now - lastSpawn > Math.max(300, config.spawnRate - (score * 5))) {
+                spawnItem();
+                lastSpawn = now;
+            }
+
+            for (let i = items.length - 1; i >= 0; i--) {
+                const item = items[i];
+                item.y += item.speed;
+                item.rotation += 0.05;
+
+                // Collision Check
+                if (
+                    item.y + config.itemSize > paddle.y &&
+                    item.y < paddle.y + config.paddleHeight &&
+                    item.x + config.itemSize > paddle.x &&
+                    item.x < paddle.x + config.paddleWidth
+                ) {
+                    if (item.type === 'core') {
+                        score += 10;
+                        scoreEl.textContent = score;
+                    } else {
+                        lives--;
+                        livesEl.textContent = lives;
+                        if (lives <= 0) endGame();
+                    }
+                    items.splice(i, 1);
+                    continue;
+                }
+
+                // Missed Check
+                if (item.y > canvas.height) {
+                    if (item.type === 'core') {
+                        lives--;
+                        livesEl.textContent = lives;
+                        if (lives <= 0) endGame();
+                    }
+                    items.splice(i, 1);
+                }
+            }
+
+            // Draw
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Background Grid
+            ctx.strokeStyle = 'rgba(0, 242, 255, 0.05)';
+            ctx.lineWidth = 1;
+            for(let i=0; i<canvas.width; i+=40) {
+                ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i, canvas.height); ctx.stroke();
+            }
+            for(let i=0; i<canvas.height; i+=40) {
+                ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(canvas.width, i); ctx.stroke();
+            }
+
+            drawPaddle();
+            drawItems();
+
+            animationFrame = requestAnimationFrame(update);
+        }
+
+        function startGame() {
+            score = 0;
+            lives = 3;
+            items = [];
+            scoreEl.textContent = score;
+            livesEl.textContent = lives;
+            gameActive = true;
+            overlay.style.display = 'none';
+            init();
+            update();
+        }
+
+        function endGame() {
+            gameActive = false;
+            cancelAnimationFrame(animationFrame);
+            overlay.style.display = 'flex';
+            titleEl.textContent = "SYSTEM CRITICAL";
+            messageEl.innerHTML = `Game Over<br>Final Score: ${score}`;
+            startBtn.textContent = "Reboot System";
+        }
+
+        startBtn.addEventListener('click', startGame);
+
+        window.onload = init;
+    </script>
+</body>
+</html>
+
+  
